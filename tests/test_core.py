@@ -193,3 +193,16 @@ def test_postman_alarm_query_filters_and_sorting():
     assert response.status_code == 200
     assert response.json()["data"]
     assert all(row["status"] == "active" for row in response.json()["data"])
+
+
+def test_mcp_server_imports_and_exposes_tools():
+    from mcp_servers.alarm_management.server import mcp
+    registered = getattr(getattr(mcp, "_tool_manager", None), "_tools", {})
+    assert {
+        "search_assets",
+        "get_asset_metadata",
+        "get_alarms",
+        "get_alarm_summary",
+        "get_alarm_correlation",
+        "get_operator_recommendations",
+    }.issubset(registered)
