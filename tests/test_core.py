@@ -96,3 +96,100 @@ def test_unknown_alarm_is_not_silent():
     assert client.post(
         "/alarms/priority-score", headers=AUTH, json={"alarm_id": "NOPE"}
     ).status_code == 404
+
+
+def test_postman_nested_summary_trends_and_trace():
+    payload = {
+        "asset_ids": ["BFP-101"],
+        "time_range": {
+            "start_time": "2026-05-01T00:00:00Z",
+            "end_time": "2026-07-01T00:00:00Z",
+        },
+        "severity": ["high", "critical"],
+        "group_by": ["alarm_name"],
+        "kpis": ["alarm_count", "recurring_rate", "avg_ack_delay"],
+    }
+    summary = client.post(
+        "/alarms/summary",
+        headers={**AUTH, "trace_id": "trace-test", "x-client-id": "pytest", "x-metadata-tag": "edge"},
+        json=payload,
+    )
+    assert summary.status_code == 200
+    assert summary.json()["trace"]["trace_id"] == "trace-test"
+    trends = client.post(
+        "/alarms/trends",
+        headers=AUTH,
+        json={**payload, "bucket": "daily", "metrics": ["alarm_count", "avg_ack_delay"]},
+    )
+    assert trends.status_code == 200
+    assert trends.json()["series"]
+
+
+def test_postman_advanced_endpoints():
+    time_range = {
+        "start_time": "2026-05-01T00:00:00Z",
+        "end_time": "2026-07-01T00:00:00Z",
+    }
+    flood = client.post(
+        "/alarms/flood-analysis",
+        headers=AUTH,
+        json={"unit": "Unit 2", "time_range": time_range, "threshold_count": 10, "rolling_window_minutes": 10},
+    )
+    rationalization = client.post(
+        "/alarms/rationalization-candidates",
+        headers=AUTH,
+        json={"asset_ids": ["BFP-101"], "time_range": time_range, "recurrence_threshold": 5},
+    )
+    assert flood.status_code == 200
+    assert "flood_windows" in flood.json()
+    assert rationalization.status_code == 200
+    assert "candidates" in rationalization.json()
+
+
+def test_postman_calculation_and_kpi_endpoints():
+    generated = client.post(
+        "/calculation-code/generate",
+        headers=AUTH,
+        json={
+            "calculation_type": "alarm_flood_index",
+            "filters": {
+                "unit": "Unit 3",
+                "start_time": "2026-05-01T00:00:00Z",
+                "end_time": "2026-07-01T00:00:00Z",
+            },
+        },
+    )
+    assert generated.status_code == 200
+    calculation_id = generated.json()["calculation_id"]
+    executed = client.post(
+        "/calculation-code/execute",
+        headers=AUTH,
+        json={
+            "calculation_id": calculation_id,
+            "filters": {
+                "unit": "Unit 3",
+                "start_time": "2026-05-01T00:00:00Z",
+                "end_time": "2026-07-01T00:00:00Z",
+            },
+        },
+    )
+    assert executed.status_code == 200
+    assert executed.json()["status"] == "completed"
+    assert client.get("/analytics/kpi-definitions", headers=AUTH).status_code == 200
+
+
+def test_postman_alarm_query_filters_and_sorting():
+    response = client.get(
+        "/alarms",
+        params={
+            "site": "EastRefinery",
+            "status": "active",
+            "sort_by": "start_time",
+            "sort_order": "desc",
+            "page_size": 50,
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]
+    assert all(row["status"] == "active" for row in response.json()["data"])
