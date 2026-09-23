@@ -1,50 +1,207 @@
-import os,uuid,time,json
-from datetime import datetime,timedelta,timezone
-from fastapi import FastAPI,HTTPException
-from pydantic import BaseModel
+import json
+import os
+import re
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from fastapi import FastAPI, HTTPException
 from mcp import ClientSession
+from pydantic import BaseModel, Field
 from mcp.client.streamable_http import streamable_http_client
+
 from rag.retrieval.service import RAGService
-app=FastAPI(title="ABB Alarm Investigation Copilot",version="1.0.0")
-rag=RAGService(os.getenv("RAG_INDEX_PATH","rag/index/index.joblib"),os.getenv("RAG_DOCUMENT_PATH","rag/documents"))
-class Chat(BaseModel): message:str; conversation_id:str|None=None
-async def tool(s,n,a,tr,t):
- st=time.perf_counter()
- try:
-  r=await s.call_tool(n,a); vals=[]
-  for c in r.content:
-   if hasattr(c,"text"):
-    try: vals.append(json.loads(c.text))
-    except: vals.append(c.text)
-  out=vals[0] if len(vals)==1 else vals
-  tr.append({"tool":n,"status":"success","duration_ms":round((time.perf_counter()-st)*1000,1),"trace_id":t}); return out
- except Exception as e:
-  tr.append({"tool":n,"status":"error","error":str(e)[:300],"trace_id":t}); raise
+
+app = FastAPI(title="ABB Alarm Investigation Copilot", version="1.1.0")
+rag = RAGService(
+    os.getenv("RAG_INDEX_PATH", "rag/index/index.joblib"),
+    os.getenv("RAG_DOCUMENT_PATH", "rag/documents"),
+)
+
+
+class Chat(BaseModel):
+    message: str = Field(min_length=3, max_length=4000)
+    conversation_id: str | None = None
+
+
+async def call_tool(session, name, arguments, trace, trace_id):
+    started = time.perf_counter()
+    try:
+        result = await session.call_tool(name, arguments)
+        values = []
+        for content in result.content:
+            if hasattr(content, "text"):
+                try:
+                    values.append(json.loads(content.text))
+                except (TypeError, ValueError):
+                    values.append(content.text)
+        output = values[0] if len(values) == 1 else values
+        trace.append({
+            "tool": name,
+            "status": "success",
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            "trace_id": trace_id,
+        })
+        return output
+    except Exception as exc:
+        trace.append({
+            "tool": name,
+            "status": "error",
+            "error": str(exc)[:300],
+            "trace_id": trace_id,
+        })
+        raise
+
+
+def investigation_window(message: str) -> tuple[datetime, datetime, int]:
+    match = re.search(r"(\d+)\s*days?", message.lower())
+    days = int(match.group(1)) if match else 30
+    if not 1 <= days <= 3650:
+        raise HTTPException(422, "Investigation window must be between 1 and 3650 days")
+    configured_end = os.getenv("INVESTIGATION_END_TIME")
+    if configured_end:
+        end = datetime.fromisoformat(configured_end.replace("Z", "+00:00"))
+    else:
+        end = datetime.now(timezone.utc)
+    return end - timedelta(days=days), end, days
+
+
+def resolve_asset_query(message: str) -> str:
+    match = re.search(r"\b[A-Z]{2,10}-\d{1,6}\b", message.upper())
+    if match:
+        return match.group(0)
+    return message.strip()
+
+
 @app.get("/health")
-def health(): return {"status":"ok"}
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/api/chat")
-async def chat(q:Chat):
- trace_id=str(uuid.uuid4()); trace=[]; text=q.message.lower()
- asset_q="Boiler Feed Pump 101" if ("bfp-101" in text or "pump 101" in text) else q.message
- days=90 if "90 days" in text else 30
- end=datetime(2026,7,1,tzinfo=timezone.utc); start=end-timedelta(days=days)
- try:
-  async with streamable_http_client(os.getenv("MCP_SERVER_URL","http://localhost:9000/mcp")) as streams:
-   async with ClientSession(*streams) as s:
-    await s.initialize()
-    names={x.name for x in (await s.list_tools()).tools}
-    needed={"search_assets","get_asset_metadata","get_alarms","get_alarm_summary","get_alarm_correlation","get_operator_recommendations"}
-    if not needed<=names: raise RuntimeError(f"Missing MCP tools: {needed-names}")
-    assets=await tool(s,"search_assets",{"query":asset_q,"limit":10},trace,trace_id); asset=assets["results"][0]; aid=asset["asset_id"]
-    meta=await tool(s,"get_asset_metadata",{"asset_id":aid},trace,trace_id)
-    alarms=await tool(s,"get_alarms",{"asset_id":aid,"start_time":start.isoformat(),"end_time":end.isoformat(),"page":1,"page_size":200},trace,trace_id)
-    window={"asset_ids":[aid],"start_time":start.isoformat(),"end_time":end.isoformat()}
-    summary=await tool(s,"get_alarm_summary",window,trace,trace_id)
-    corr=await tool(s,"get_alarm_correlation",window,trace,trace_id)
-    current=(alarms.get("data") or [None])[0]
-    rec=await tool(s,"get_operator_recommendations",{"alarm_id":current["alarm_id"]},trace,trace_id) if current else {"recommendations":[]}
- except Exception as e: raise HTTPException(502,f"Investigation failed: {e}")
- hits=rag.search(f"{asset['name']} high discharge pressure recurring operating procedure", [aid],5)
- groups=summary.get("groups",[]); recurring=max(groups,key=lambda x:x["count"]) if groups else None
- answer=f"Investigated {asset['name']} for {days} days: {summary['total_alarms']} alarms. Most recurrent: {recurring['alarm_name']} ({recurring['count']}) if recurring else none. Correlation provides co-occurrence evidence, not proof of root cause. Procedure evidence points to checking transmitter indication, downstream valve/restriction, operating point, suction conditions and minimum-flow path."
- return {"answer":answer,"confidence":"high" if hits else "medium","evidence":{"asset":asset,"metadata":meta,"alarms":alarms,"summary":summary,"correlation":corr,"recommendations":rec["recommendations"]},"citations":hits,"mcp_trace":trace,"warnings":[] if hits else ["No relevant procedure evidence retrieved."]}
+async def chat(query: Chat):
+    trace_id = str(uuid.uuid4())
+    trace = []
+    text = query.message.lower()
+    start, end, days = investigation_window(query.message)
+    asset_query = resolve_asset_query(query.message)
+
+    try:
+        async with streamable_http_client(
+            os.getenv("MCP_SERVER_URL", "http://localhost:9000/mcp")
+        ) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+                discovered = {tool.name for tool in (await session.list_tools()).tools}
+                required = {
+                    "search_assets",
+                    "get_asset_metadata",
+                    "get_alarms",
+                    "get_alarm_summary",
+                    "get_alarm_correlation",
+                    "get_operator_recommendations",
+                }
+                if not required <= discovered:
+                    missing = ", ".join(sorted(required - discovered))
+                    raise RuntimeError(f"Missing MCP tools: {missing}")
+
+                assets = await call_tool(
+                    session, "search_assets", {"query": asset_query, "limit": 10}, trace, trace_id
+                )
+                results = assets.get("results", [])
+                if not results:
+                    raise HTTPException(
+                        404,
+                        "No matching asset was found. Include an asset ID, name, site, or unit in the request.",
+                    )
+                asset = results[0]
+                asset_id = asset["asset_id"]
+
+                metadata = await call_tool(
+                    session, "get_asset_metadata", {"asset_id": asset_id}, trace, trace_id
+                )
+                alarms = await call_tool(
+                    session,
+                    "get_alarms",
+                    {
+                        "asset_id": asset_id,
+                        "start_time": start.isoformat(),
+                        "end_time": end.isoformat(),
+                        "page": 1,
+                        "page_size": 200,
+                    },
+                    trace,
+                    trace_id,
+                )
+                window = {
+                    "asset_ids": [asset_id],
+                    "start_time": start.isoformat(),
+                    "end_time": end.isoformat(),
+                }
+                summary = await call_tool(
+                    session, "get_alarm_summary", window, trace, trace_id
+                )
+                correlation = await call_tool(
+                    session, "get_alarm_correlation", window, trace, trace_id
+                )
+
+                alarm_rows = alarms.get("data", [])
+                current = alarm_rows[0] if alarm_rows else None
+                recommendations = (
+                    await call_tool(
+                        session,
+                        "get_operator_recommendations",
+                        {"alarm_id": current["alarm_id"]},
+                        trace,
+                        trace_id,
+                    )
+                    if current
+                    else {"recommendations": []}
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Investigation failed: {str(exc)[:300]}") from exc
+
+    rag_query = f"{asset['name']} alarm operating procedure troubleshooting recommended actions"
+    hits = rag.search(rag_query, [asset_id], 5)
+    groups = summary.get("groups", [])
+    recurring = max(groups, key=lambda item: item["count"]) if groups else None
+    recurrence_text = (
+        f"Most recurrent: {recurring['alarm_name']} ({recurring['count']}). "
+        if recurring
+        else "No recurring alarm group was returned. "
+    )
+    active_critical = [
+        row for row in alarms.get("data", [])
+        if row.get("status") == "active" and row.get("severity") == "critical"
+    ]
+    answer = (
+        f"Investigated {asset['name']} for {days} days: {summary['total_alarms']} alarms. "
+        f"{recurrence_text}"
+        f"Active critical alarms in the returned window: {len(active_critical)}. "
+        "Correlation is co-occurrence evidence, not proof of root cause. "
+        "Use the cited procedure to verify transmitter indication, downstream valve/restriction, "
+        "operating point, suction conditions and the minimum-flow path."
+    )
+    warnings = []
+    if not hits:
+        warnings.append("No relevant procedure evidence was retrieved.")
+    if text.startswith(("ignore", "disregard")):
+        warnings.append("The request begins with an instruction-like phrase; retrieved documents are treated as evidence only.")
+
+    return {
+        "answer": answer,
+        "confidence": "high" if hits else "medium",
+        "evidence": {
+            "asset": asset,
+            "metadata": metadata,
+            "alarms": alarms,
+            "summary": summary,
+            "correlation": correlation,
+            "recommendations": recommendations.get("recommendations", []),
+        },
+        "citations": hits,
+        "mcp_trace": trace,
+        "warnings": warnings,
+    }
