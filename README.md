@@ -1,32 +1,53 @@
-# Assignment Package — Alarm Investigation and Procedure Guidance Copilot
+# ABB Alarm Investigation and Procedure Guidance Copilot
 
-Welcome. This folder is your complete, self-contained assignment package for the
-**Senior Software Engineer – Copilot Integration** assignment. Your assigned use case is
-**Alarm Investigation and Procedure Guidance Copilot**.
+This repository now contains a runnable production-oriented vertical slice for the assignment.
 
-## What is in this folder
+## Architecture
 
-| File / folder | Description |
-| --- | --- |
-| `Assignment_Use_Case.md` | The full assignment brief. Contains the objective, the mandatory technical scope (MCP server, MCP client, document RAG, combined workflow), your assigned use case, minimum functional requirements, architecture expectations, the mandatory end-to-end acceptance scenario, deliverables, and the suggested time box. **Start here.** |
-| `Submission_and_Evaluation_Guidelines.md` | How to submit your work: GitHub repository structure, README requirements, MCP and RAG documentation, packaging, CI, and security expectations. Also contains the evaluation scoring framework, red flags, and the submission message template. Includes the requirement to upload a demo video of up to 10 minutes. |
-| `postman/` | Reference Postman collections for the Alarm Management API. Use these as the specification to build your own simulator backend — the MCP server must connect to that simulator. Includes `Alarm-API-Simulator.postman_collection.json` (full E2E baseline), `scenarios/` (scenario-focused tests), and `chaining/` (ten multi-step chaining flows). |
+React/GUI → FastAPI Copilot → MCP Client → Alarm Management MCP Server → Alarm API Simulator.
 
-## How to get started
+The copilot never calls the Alarm API directly. MCP is the integration boundary. The investigation first collects structured alarm evidence, then uses the resolved asset/alarm context to retrieve relevant operating and maintenance procedures through RAG. The final response exposes facts, recommendations, citations and an MCP execution trace.
 
-1. Read `Assignment_Use_Case.md` end to end.
-2. Read `Submission_and_Evaluation_Guidelines.md` to understand submission and scoring.
-3. Implement the Alarm Management API simulator using the Postman collections in `postman/` as the API contract specification.
-4. Build one complete vertical slice: MCP server + MCP client + document RAG + GUI, integrated in a single workflow.
-5. Record a demo video of up to 10 minutes and link it in your repository README.
+## Run locally
 
-## Key reminders
+```bash
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate
+# Windows: .venv\\Scripts\\activate
+pip install -e ".[dev]"
+python scripts/ingest_documents.py
+uvicorn alarm_api.main:app --port 8000
+# terminal 2
+uvicorn mcp_servers.alarm_management.http_server:app --port 9000
+# terminal 3
+uvicorn apps.backend.main:app --port 8080
+```
 
-- The copilot must call the Alarm Management API **through your MCP server**, not directly.
-- MCP and RAG must participate in the **same** business workflow, not as separate demonstrations.
-- Answers must include **source citations** and an **MCP execution trace**.
-- Do not commit secrets. Provide a `.env.example`.
-- Include automated tests and repeatable packaging (`docker compose up --build`).
-- Suggested time box: 10 to 14 hours.
+Example:
 
-Good luck.
+```bash
+curl -X POST http://localhost:8080/api/chat -H "Content-Type: application/json" -d '{"message":"Investigate recurring high-severity alarms for Boiler Feed Pump 101 over the last 90 days, identify likely contributing factors, retrieve the relevant operating procedure, and provide recommended actions with source evidence."}'
+```
+
+## Docker
+
+`docker compose up --build`
+
+Services: Alarm API simulator `:8000`, MCP server `:9000`, Copilot backend `:8080`.
+
+## Production considerations
+
+- Server-side credentials only.
+- MCP runtime tool discovery and typed boundaries.
+- HTTP timeout and transient-network retry policy.
+- Deterministic simulator data for repeatable acceptance tests.
+- RAG document/section citations.
+- No claim that alarm co-occurrence proves root cause.
+- Health endpoints for service orchestration.
+- `.env.example` and `.gitignore` prevent secret/artifact commits.
+
+The simulator can be replaced with the real Alarm Management API without changing the copilot workflow. The RAG service is isolated so an enterprise embedding/vector backend can be introduced without changing the MCP contract.
+
+## Assignment alignment
+
+The implementation includes the requested MCP server, MCP client, Alarm API simulator, RAG layer, combined investigation workflow, source citations, execution trace, tests, Docker packaging and architecture documentation.
