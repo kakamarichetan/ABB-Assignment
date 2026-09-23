@@ -1,0 +1,22 @@
+services:
+  alarm-api:
+    build: {context: ., dockerfile: Dockerfile, target: alarm-api}
+    environment: {ALARM_API_TOKEN: demo-token}
+    ports: ["8000:8000"]
+  alarm-mcp:
+    build: {context: ., dockerfile: Dockerfile, target: alarm-mcp}
+    environment:
+      ALARM_API_BASE_URL: http://alarm-api:8000
+      ALARM_API_TOKEN: demo-token
+    ports: ["9000:9000"]
+    depends_on: [alarm-api]
+  backend:
+    build: {context: ., dockerfile: Dockerfile, target: backend}
+    environment:
+      ALARM_API_BASE_URL: http://alarm-api:8000
+      ALARM_API_TOKEN: demo-token
+      MCP_SERVER_URL: http://alarm-mcp:9000/mcp
+      RAG_DOCUMENT_PATH: /app/rag/documents
+      RAG_INDEX_PATH: /app/rag/index/index.joblib
+    ports: ["8080:8080"]
+    depends_on: [alarm-mcp]
