@@ -6,13 +6,21 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from pydantic import BaseModel, Field
 from mcp.client.streamable_http import streamable_http_client
 
 from rag.retrieval.service import RAGService
 
-app = FastAPI(title="ABB Alarm Investigation Copilot", version="1.1.0")
+app = FastAPI(title="ABB Alarm Investigation Copilot", version="1.1.1")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173").split(","),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization", "X-Trace-ID"],
+)
 rag = RAGService(
     os.getenv("RAG_INDEX_PATH", "rag/index/index.joblib"),
     os.getenv("RAG_DOCUMENT_PATH", "rag/documents"),
