@@ -1,5 +1,5 @@
 name: CI
-on: [push,pull_request]
+on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -11,3 +11,13 @@ jobs:
       - run: python scripts/ingest_documents.py
       - run: ruff check .
       - run: pytest -q
+      - name: Build Python containers
+        run: |
+          docker build --target alarm-api -t abb-alarm-api .
+          docker build --target alarm-mcp -t abb-alarm-mcp .
+          docker build --target backend -t abb-backend .
+      - name: Build frontend
+        working-directory: apps/frontend
+        run: |
+          npm install
+          npm run build
