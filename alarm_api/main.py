@@ -167,7 +167,7 @@ def filtered_rows(
         and (not start_time or datetime.fromisoformat(alarm["start_time"]) >= start_time)
         and (not end_time or datetime.fromisoformat(alarm["start_time"]) <= end_time)
         and (not severity or alarm["severity"] in severity)
-        and (not site or amap[alarm["asset_id"]]["site"].lower() == site.lower())
+        and (not site or amap[alarm["asset_id"]]["site"].lower().replace(" ", "") == site.lower().replace(" ", ""))
         and (not unit or amap[alarm["asset_id"]]["unit"].lower() == unit.lower())
         and (not status or alarm["status"] == status)
     ]
@@ -194,10 +194,11 @@ def asset_search(
 ):
     auth(authorization)
     q = query.lower()
+    normalized_q = q.replace(" ", "")
     results = [
         asset for asset in ASSETS
         if (q in asset["name"].lower() or q in asset["asset_id"].lower()
-            or q in asset["type"].lower() or q in asset["site"].lower() or q in asset["unit"].lower())
+            or q in asset["type"].lower() or normalized_q in asset["site"].lower().replace(" ", "") or q in asset["unit"].lower())
         and (not unit or asset["unit"].lower() == unit.lower())
         and (not site or asset["site"].lower() == site.lower())
     ][:limit]
@@ -257,7 +258,7 @@ def alarm(alarm_id: str, authorization: str | None = Header(None)):
 @app.post("/alarms/summary")
 def summary(
     request: QueryModel,
-    trace_id: str | None = Header(None),
+    trace_id: str | None = Header(None, alias="trace_id"),
     x_client_id: str | None = Header(None),
     x_metadata_tag: str | None = Header(None),
     authorization: str | None = Header(None),
