@@ -1,14 +1,23 @@
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+
+def retryable(exc):
+    if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        return exc.response.status_code in {429, 500, 502, 503, 504}
+    return False
 
 
 class AlarmAPIClient:
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, token: str, timeout_seconds: float = 10):
         self.base_url = base_url.rstrip("/")
         self.token = token
+        self.timeout_seconds = timeout_seconds
 
     @retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        retry=retry_if_exception(retryable),
         wait=wait_exponential(min=0.2, max=2),
         stop=stop_after_attempt(3),
         reraise=True,
@@ -17,10 +26,12 @@ class AlarmAPIClient:
         headers = {"Authorization": f"Bearer {self.token}"}
         if trace_headers:
             headers.update({key: value for key, value in trace_headers.items() if value})
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.request(
                 method, self.base_url + path, headers=headers, **kwargs
             )
+            if response.status_code in {429, 500, 502, 503, 504}:
+                response.raise_for_status()
             response.raise_for_status()
             return response.json()
 
