@@ -147,10 +147,10 @@ async def chat(query: Chat):
                     "end_time": end.isoformat(),
                 }
                 summary = await call_tool(
-                    session, "get_alarm_summary", window, trace, trace_id
+                    session, "get_alarm_summary", {**window, "trace_id": trace_id, "client_id": "copilot-backend", "metadata_tag": "copilot"}, trace, trace_id
                 )
                 correlation = await call_tool(
-                    session, "get_alarm_correlation", window, trace, trace_id
+                    session, "get_alarm_correlation", {**window, "trace_id": trace_id, "client_id": "copilot-backend", "metadata_tag": "copilot"}, trace, trace_id
                 )
 
                 alarm_rows = alarms.get("data", [])
@@ -159,7 +159,7 @@ async def chat(query: Chat):
                     await call_tool(
                         session,
                         "get_operator_recommendations",
-                        {"alarm_id": current["alarm_id"]},
+                        {"alarm_id": current["alarm_id"], "trace_id": trace_id, "client_id": "copilot-backend", "metadata_tag": "copilot"},
                         trace,
                         trace_id,
                     )
