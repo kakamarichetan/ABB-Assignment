@@ -65,14 +65,14 @@ def correlation(x:Correlation,authorization:str|None=Header(None)):
  names=list(groups); pairs=[{"alarm_a":names[i],"alarm_b":names[j],"support":min(groups[names[i]],groups[names[j]])} for i in range(len(names)) for j in range(i+1,len(names))]
  return {"correlations":pairs,"method":"cooccurrence","lag_window_minutes":x.lag_window_minutes}
 @app.post("/alarms/priority-score")
-def priority(x:Priority,authorization:str|None=Header(None)):
- auth(authorization); a=next((x for x in ALARMS if x["alarm_id"]==x.alarm_id),None)
+def priority(request:Priority,authorization:str|None=Header(None)):
+ auth(authorization); a=next((alarm for alarm in ALARMS if alarm["alarm_id"]==request.alarm_id),None)
  if not a: raise HTTPException(404,"Alarm not found")
  n=sum(y["asset_id"]==a["asset_id"] and y["alarm_name"]==a["alarm_name"] for y in ALARMS)
  score=min(100,{"critical":50,"high":35,"medium":20,"low":5}[a["severity"]]+min(30,n*2)+(20 if a["status"]=="active" else 0))
  return {"alarm_id":a["alarm_id"],"priority_score":score,"priority_band":"critical" if score>=80 else "high" if score>=50 else "medium","recurrence_count":n}
 @app.post("/recommendations/operator-actions")
-def recommendations(x:Priority,authorization:str|None=Header(None)):
- auth(authorization); a=next((x for x in ALARMS if x["alarm_id"]==x.alarm_id),None)
+def recommendations(request:Priority,authorization:str|None=Header(None)):
+ auth(authorization); a=next((alarm for alarm in ALARMS if alarm["alarm_id"]==request.alarm_id),None)
  if not a: raise HTTPException(404,"Alarm not found")
  return {"alarm_id":a["alarm_id"],"recommendations":["Verify transmitter against local gauge.","Confirm downstream valve alignment and restrictions.","Check pump operating point, suction conditions and minimum-flow path.","Escalate persistent critical conditions using the approved site procedure."]}
