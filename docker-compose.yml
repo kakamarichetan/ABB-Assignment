@@ -3,6 +3,7 @@ services:
     build: {context: ., dockerfile: Dockerfile, target: alarm-api}
     environment: {ALARM_API_TOKEN: demo-token}
     ports: ["8000:8000"]
+
   alarm-mcp:
     build: {context: ., dockerfile: Dockerfile, target: alarm-mcp}
     environment:
@@ -10,6 +11,7 @@ services:
       ALARM_API_TOKEN: demo-token
     ports: ["9000:9000"]
     depends_on: [alarm-api]
+
   backend:
     build: {context: ., dockerfile: Dockerfile, target: backend}
     environment:
@@ -18,5 +20,15 @@ services:
       MCP_SERVER_URL: http://alarm-mcp:9000/mcp
       RAG_DOCUMENT_PATH: /app/rag/documents
       RAG_INDEX_PATH: /app/rag/index/index.joblib
+      CORS_ALLOW_ORIGINS: http://localhost:5173
     ports: ["8080:8080"]
     depends_on: [alarm-mcp]
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+    ports: ["5173:5173"]
+    depends_on: [backend]
