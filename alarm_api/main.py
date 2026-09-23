@@ -18,6 +18,7 @@ for h in [6,24,72,168,240,336,480,600,720,840,1000,1200,1400,1600,1750,1900]: ad
 for h in [3,48,144]: add("BFP-101","Low Suction Pressure","critical",h,9)
 add("BFP-101","High Discharge Pressure","critical",1,0,"active")
 for h in [8,36,180]: add("BFP-102","High Discharge Pressure","high",h,20)
+add("BFP-102","High Discharge Pressure","critical",2,0,"active")
 class Summary(BaseModel):
  asset_ids:list[str]; start_time:datetime; end_time:datetime; severity:list[str]|None=None
 class Correlation(BaseModel):
@@ -32,7 +33,7 @@ def health(): return {"status":"ok"}
 @app.get("/assets/search")
 def asset_search(query:str,limit:int=10,authorization:str|None=Header(None)):
  auth(authorization); q=query.lower()
- r=[x for x in ASSETS if q in x["name"].lower() or q in x["asset_id"].lower() or q in x["type"].lower()][:limit]
+ r=[x for x in ASSETS if q in x["name"].lower() or q in x["asset_id"].lower() or q in x["type"].lower() or q in x["site"].lower() or q in x["unit"].lower()][:limit]
  return {"results":r,"count":len(r)}
 @app.get("/assets/{asset_id}/metadata")
 def metadata(asset_id:str,authorization:str|None=Header(None)):
@@ -40,7 +41,7 @@ def metadata(asset_id:str,authorization:str|None=Header(None)):
  if not a: raise HTTPException(404,"Asset not found")
  return {"asset":a,"related_assets":[x for x in ASSETS if x["asset_id"] in a["related_asset_ids"]]}
 @app.get("/alarms")
-def alarms(asset_id:str,start_time:datetime|None=None,end_time:datetime|None=None,page:int=Query(1,ge=1),page_size:int=Query(50,le=200),authorization:str|None=Header(None)):
+def alarms(asset_id:str,start_time:datetime|None=None,end_time:datetime|None=None,page:int=Query(1,ge=1),page_size:int=Query(50,ge=1,le=200),authorization:str|None=Header(None)):
  auth(authorization); r=ALARMS
  if asset_id:r=[x for x in r if x["asset_id"]==asset_id]
  if start_time:r=[x for x in r if datetime.fromisoformat(x["start_time"])>=start_time]
