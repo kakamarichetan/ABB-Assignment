@@ -1,6 +1,6 @@
 # ABB Alarm Investigation & Procedure Guidance Copilot
 
-A production-oriented, runnable implementation of the ABB alarm-investigation assignment.
+A production-oriented, runnable reference implementation for industrial alarm investigation, procedure retrieval, and operator guidance.
 
 The solution demonstrates an end-to-end industrial alarm investigation workflow:
 
@@ -705,7 +705,7 @@ Run:
 pytest -q
 ```
 
-Current verified CI result:
+Latest previously verified CI result:
 
 ```text
 18 passed, 1 warning
@@ -752,7 +752,7 @@ GitHub Actions executes:
 10. Frontend production build
 ```
 
-The latest verified workflow completed successfully.
+The latest previously verified workflow completed successfully.
 
 Verified result:
 
@@ -1029,33 +1029,35 @@ CORS_ALLOW_ORIGINS=http://localhost:5173
 
 ---
 
-# 27. Design decisions worth explaining in an interview
+# 27. Design Rationale
 
-### Why MCP?
+### MCP as the integration boundary
 
-MCP creates a controlled tool boundary between the AI orchestration layer and enterprise systems. It avoids coupling the Copilot directly to every source-system API.
+MCP isolates enterprise operational capabilities from the AI orchestration layer and provides a structured tool contract.
 
-### Why RAG after alarm retrieval?
+### Alarm retrieval before document retrieval
 
-The alarm context provides the equipment and failure terminology needed to retrieve the most relevant operating procedure. This is more targeted than performing generic document retrieval first.
+Structured alarm evidence establishes the asset, alarm vocabulary, severity, timing, and related signals before procedure retrieval. This makes the knowledge query more targeted.
 
-### Why deterministic simulator data?
+### Deterministic source-system simulator
 
-It makes automated acceptance testing reproducible. Every test run sees known assets, alarms, timestamps and scenarios.
+Deterministic data provides reproducible development, automated validation, and predictable local execution.
 
-### Why not claim root cause?
+### Evidence-first response generation
 
-Alarm correlation identifies relationships/co-occurrence. It does not establish causality. An industrial copilot should explicitly distinguish evidence from inference.
+The response is built from source-system evidence and retrieved documentation rather than unconstrained generation.
 
-### Why isolate the RAG layer?
+### Explicit uncertainty
 
-The current TF-IDF implementation is lightweight and deterministic, while the interface allows production replacement with hybrid sparse+dense retrieval and a vector store.
+Correlation is not treated as causality. The system preserves the distinction between observed evidence, related signals, and conclusions requiring engineering validation.
 
-### Why return an MCP trace?
+### RAG abstraction
 
-It makes the Copilot explainable from an integration perspective. Reviewers can see which tools were called and whether each operation succeeded.
+The current local retriever is lightweight, while the service boundary supports migration to enterprise hybrid retrieval without redesigning the MCP contract.
 
----
+### Traceability
+
+MCP execution traces make each investigation auditable at the integration level.
 
 # 28. Quick-start checklist
 
@@ -1099,7 +1101,7 @@ Expected verified result:
 
 ## 29. Current verification status
 
-The repository has been executed through the GitHub CI pipeline after the latest fixes.
+The repository was previously validated through the GitHub CI pipeline after the latest implementation fixes.
 
 Verified:
 
